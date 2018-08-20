@@ -40,25 +40,52 @@ public class ModifyVcproj {
 	private HashMap<String, ArrayList<String>> slns = new HashMap<>();
 	private static final String UUID_PATTERN = "[a-zA-Z0-9]{8}-([a-zA-Z0-9]{4}-){3}[a-zA-Z0-9]{12}";
 	private static final String NAME_PATTERN = "[a-zA-Z0-9\\s_]+";
-	private static final String NIX_PATH_PATTERN = "[a-zA-Z0-9\\s_/:$\\(\\)\\\\.]+";
+	private static final String NIX_PATH_PATTERN = "[a-zA-Z0-9_/:$\\(\\)\\\\.-]+";
 	private static final String VCXPROJ_PATTERN = "[a-zA-Z0-9_\\s\\\\/]+\\.vcxproj";
 	private static final String USER_MARCO_FILE = "Microsoft.Cpp.Win32.user";
 	private final String JAVA_HOME_x86;
 	private final static String XMLNS_NAMESPACE = "http://schemas.microsoft.com/developer/msbuild/2003";
+	private static String[] ENV_KEY_LIST = { "BUILDDIR", "SRC_ROOT", "ANT_HOME", "OOO_JUNIT_JAR", "CYGWIN_HOME",
+			"TARFILE_LOCATION" };
 
 	private final String CygwinHome;
 	private final String CygwinMakeDir;
 	private final String BuildDir;
 	private final String TotalRoot;
 
-	public ModifyVcproj(String CygwinHome, String CygwinMakeDir, String TotalRoot, String BuildDir, String JAVA_HOME) {
+	private final String ANT_HOME;
+	private final String OOO_JUNIT_JAR;
+	private final String TARFILE_LOCATION;
+
+	public ModifyVcproj(String CygwinHome, String CygwinMakeDir, String TotalRoot, String BuildDir, String JAVA_HOME,
+			String ANT_HOME, String OOO_JUNIT_JAR, String TARFILE_LOCATION) {
+		CygwinHome = modifyPath(CygwinHome);
 		this.CygwinHome = CygwinHome;
 		this.CygwinMakeDir = CygwinMakeDir;
+		TotalRoot = modifyPath(TotalRoot);
 		this.TotalRoot = TotalRoot;
+		BuildDir = modifyPath(BuildDir);
 		this.BuildDir = BuildDir;
+		JAVA_HOME = modifyPath(JAVA_HOME);
 		this.JAVA_HOME_x86 = JAVA_HOME;
+		ANT_HOME = modifyPath(ANT_HOME);
+		this.ANT_HOME = ANT_HOME;
+		OOO_JUNIT_JAR = modifyPath(OOO_JUNIT_JAR);
+		this.OOO_JUNIT_JAR = OOO_JUNIT_JAR;
+		TARFILE_LOCATION = modifyPath(TARFILE_LOCATION);
+		this.TARFILE_LOCATION = TARFILE_LOCATION;
 		Arrays.sort(SDK_MARCO_LIST);
 		System.arraycopy(SDK_MARCO_LIST, 0, BUF_SDK_MARCO_LIST, 1, SDK_MARCO_LIST.length);
+//		System.exit(0);
+	}
+
+	private String modifyPath(String path) {
+		path = path.replaceAll("\\\\", "/").replaceAll("/\\$", "\\\\\\$");
+//		System.out.println(path);
+		if (path.endsWith("/"))
+			return path.substring(0, path.length() - 1);
+		else
+			return path;
 	}
 
 	public int modifySln(String path) {
@@ -178,6 +205,10 @@ public class ModifyVcproj {
 			macro.put("NMakeOutput", BuildDir + "instdir/program/soffice.bin");
 			macro.put("JAVA_HOME_x86", JAVA_HOME_x86);
 
+			macro.put("ANT_HOME", ANT_HOME);
+			macro.put("OOO_JUNIT_JAR", OOO_JUNIT_JAR);
+			macro.put("TARFILE_LOCATION", TARFILE_LOCATION);
+
 			try {
 				macroPath = path + "/" + USER_MARCO_FILE;
 				File macroFile = new File(macroPath);
@@ -207,6 +238,19 @@ public class ModifyVcproj {
 		try {
 			if (DEFAULT_SAXREADER == null)
 				DEFAULT_SAXREADER = new SAXReader();
+			File bakFolder = new File(path + "/.bak");
+			if (bakFolder.exists()) {
+				for (File f : bakFolder.listFiles((file) -> {
+					if (file.getName().startsWith(vcproj.getName())) {
+						return true;
+					}
+					return false;
+				})) {
+					vcproj.delete();
+					f.renameTo(vcproj);
+					break;
+				}
+			}
 			vcprojDoc = DEFAULT_SAXREADER.read(vcproj);
 		} catch (DocumentException e) {
 			e.printStackTrace();
@@ -228,6 +272,7 @@ public class ModifyVcproj {
 				e.printStackTrace();
 				return false;
 			}
+//			System.out.println(relativePath);
 			modifyFilter(filter, oldProjectRoot, relativePath);
 			try {
 				// OutputStream out = System.out;
@@ -242,11 +287,9 @@ public class ModifyVcproj {
 		if (showDoc)
 			try {
 				// OutputStream out = System.out;
-				FileOutputStream out = null;
+				OutputStream out = null;
 				if (out == null || !out.equals(System.out)) {
-					File back = new File(
-							path + "/.bak/" + vcproj.getName() + "_" + System.currentTimeMillis() + ".bak");
-					back.createNewFile();
+
 					// System.out.println(back.getPath());
 					File bakFolder = new File(path + "/.bak");
 					if (!bakFolder.exists()) {
@@ -262,6 +305,9 @@ public class ModifyVcproj {
 						}
 						// return false;
 					}
+					File back = new File(
+							path + "/.bak/" + vcproj.getName() + "_" + System.currentTimeMillis() + ".bak");
+					back.createNewFile();
 					FileInputStream tmpIn = new FileInputStream(vcproj);
 					FileOutputStream tmpOut = new FileOutputStream(back);
 					byte[] buff = new byte[1024 * 1024];
@@ -324,8 +370,16 @@ public class ModifyVcproj {
 		Project.setContent(list);
 	}
 
-	private static String REG_DUILDDIR_PATTERN = "\"([A-Z]+=\\\\\"[a-zA-Z0-9$/:]+\\\\\";)*BUILDDIR=\\\\\"("
-			+ NIX_PATH_PATTERN + ")\\\\\"(;SRC_ROOT=\\\\\"(" + NIX_PATH_PATTERN + ")\\\\\")?";
+	private static String[] ENV_VALUE_LIST = { "$(BuildDir)", "$(TotalRoot)", "$(ANT_HOME)", "$(OOO_JUNIT_JAR)",
+			"$(CygwinHome)", "$(TARFILE_LOCATION)" };
+	private static String REG_DUILDDIR_PATTERN = NIX_PATH_PATTERN
+			+ "((\\s-[A-Za-z]+)+)\\s?(\"[A-Z]+=\\\\\"[a-zA-Z0-9$/:]+\\\\\")";
+	static {
+		for (int i = 0; i < ENV_KEY_LIST.length; i++) {
+			REG_DUILDDIR_PATTERN += "((;|\\s)?(" + ENV_KEY_LIST[i] + "=\\\\\"(" + NIX_PATH_PATTERN + ")\\\\\"))?";
+		}
+		REG_DUILDDIR_PATTERN += "\\s+" + NIX_PATH_PATTERN + "((\\s-[A-Za-z]+)+)(\\s+(" + NIX_PATH_PATTERN + ")\\s+.+)";
+	}
 	private static Pattern BUILDDIR_PATTERN = Pattern.compile(REG_DUILDDIR_PATTERN);
 
 	private static final String[] SDK_MARCO_LIST = { "$(VC_VC_IncludePath)", "$(UniversalCRT_IncludePath)",
@@ -345,58 +399,70 @@ public class ModifyVcproj {
 					.selectNodes("*[starts-with(name(),'NMake')][ends-with(name(),'CommandLine')]")) {
 				commandLine = (Element) commandLineObject;
 				// System.out.println(commandLine.getText());
-				String[] command = commandLine.getText().split("\\s+");
-				command[0] = "$(CygwinHome)bin/dash.exe";
-				String tmp = command[2];
+				String text = commandLine.getText();
+				String newText = "$(CygwinHome)/bin/dash.exe";
+//				String tmp = command[2];
 				// System.out.println(tmp);
-				Matcher matcher = BUILDDIR_PATTERN.matcher(tmp);
+				Matcher matcher = BUILDDIR_PATTERN.matcher(text);
 				// System.out.println("123");
 				// System.out.println(tmp);
 				// System.out.println("123");
 				matcher.find();
 				// System.out.println(matcher.group(1));
-				String oldSrcRoot = null;
+				int index = 0;
 				try {
-					oldBuildDir = matcher.group(2);
-					oldSrcRoot = matcher.group(4);
+					newText += matcher.group(1) + " " + matcher.group(3);
+					oldBuildDir = matcher.group(3 + 4);
+//					String tmp = "";
+//					tmp = tmp.replaceAll(oldBuildDir, "\\$(BuildDir)");
+					for (int i = 0; i < ENV_KEY_LIST.length; i++) {
+//						String p = matcher.group((i + 1) * 2 + 3);
+//						if (p != null) {
+//							tmp = tmp.replaceAll(p, "\\" + ENV_VALUE_LIST[i]);
+//						} else {
+						newText += " " + ENV_KEY_LIST[i] + "=\\\"" + ENV_VALUE_LIST[i] + "\\\"";
+//						}
+					}
+					index = 4 + ENV_KEY_LIST.length * 4;
+					newText += " " + "$(CygwinMakeDir)" + matcher.group(index) + matcher.group(index + 2);
+					oldProjectRoot = matcher.group(index + 3);
+//					System.out.println(newText);
 				} catch (IllegalStateException e) {
 					e.printStackTrace();
-					System.out.println(tmp);
+//					System.out.println(tmp);
 					System.exit(0);
 				}
-				tmp = tmp.replaceAll(oldBuildDir, "\\$(BuildDir)");
-				if (oldSrcRoot != null) {
-					tmp = tmp.replaceAll(oldSrcRoot, "\\$(TotalRoot)");
-				} else {
-					tmp = tmp + ";SRC_ROOT=\\\"$(TotalRoot)\\\"";
-				}
-				command[2] = tmp;
 
-				command[3] = "$(CygwinMakeDir)";
-				oldProjectRoot = command[5];
-				command[5] = "$(ProjectRoot)";
-				String text = String.join(" ", command);
-				commandLine.setText(text);
+//				command[2] = tmp;
+//
+//				command[3] = "$(CygwinMakeDir)";
+//				oldProjectRoot = command[5];
+//				command[5] = "$(ProjectRoot)";
+//				String text = String.join(" ", command);
+//				System.out.println(newText);
+				commandLine.setText(newText);
 				// System.out.println(text);
-				// System.exit(0);
+//				 System.exit(0);
 			}
 			Element NMakeOutput = (Element) Group.selectSingleNode("*[name()='NMakeOutput']");
 			NMakeOutput.setText("$(NMakeOutput)");
 			Element IncludePath = (Element) Group.selectSingleNode("*[name()='IncludePath']");
 			String text = IncludePath.getText();
-			oldBuildDir = oldBuildDir + "/";
-			oldProjectRoot = oldProjectRoot + "/";
+//			oldBuildDir = oldBuildDir + "/";
+//			oldProjectRoot = oldProjectRoot + "/";
 			// System.out.println(oldBuildDir);
 			// System.out.println(oldProjectRoot);
 			text = text.replaceAll(oldBuildDir, "\\$(BuildDir)");
 			text = text.replaceAll(oldProjectRoot, "\\$(ProjectRoot)");
 			text = text.replaceAll(oldBuildDir.replaceAll("/", "\\\\\\\\"), "\\$(BuildDir)");
-			text = text.replaceAll(oldProjectRoot.replaceAll("/", "\\\\\\\\"), "\\$(ProjectDir)");
+			text = text.replaceAll((oldProjectRoot + "/").replaceAll("/", "\\\\\\\\"), "\\$(ProjectDir)");
 			// System.out.println(oldProjectRoot);
 			String oldTotalRoot;
-			if (oldProjectRoot.matches("[A-Za-z]:.*"))
-				oldTotalRoot = oldProjectRoot.substring(0, oldProjectRoot.length() - relativePath.length() - 1);
-			else {
+			if (oldProjectRoot.matches("[A-Za-z]:.*")) {
+				oldTotalRoot = oldProjectRoot.substring(0, oldProjectRoot.length() - relativePath.length());
+//				System.out.println(oldTotalRoot);
+//				System.exit(0);
+			} else {
 				oldTotalRoot = "\\$(ProjectDir)..\\\\Build\\\\";
 			}
 			// System.out.println(relativePath);
@@ -437,8 +503,14 @@ public class ModifyVcproj {
 				// System.out.println(include);
 				include = include.replaceAll(oldProjectRoot, "");
 				if (include.startsWith("/"))
-					include = include.substring(1, include.length() - 1);
+					include = include.substring(1, include.length());
 			}
+			if (include.endsWith(".cx"))
+				include += "x";
+			else if (include.endsWith(".cp"))
+				include += "p";
+			else if (include.endsWith("."))
+				include += "c";
 			ClCompile.addAttribute(new QName("Include"), include);
 		}
 		for (Object ClIncludeObject : vcproj.selectNodes("//*[name()='ClInclude']")) {
@@ -449,8 +521,14 @@ public class ModifyVcproj {
 				// System.out.println(include);
 				include = include.replaceAll(oldProjectRoot, "");
 				if (include.startsWith("/"))
-					include = include.substring(1, include.length() - 1);
+					include = include.substring(1, include.length());
 			}
+			if (include.endsWith(".hx"))
+				include += "x";
+			else if (include.endsWith(".hp"))
+				include += "p";
+			else if (include.endsWith("."))
+				include += "h";
 			ClInclude.addAttribute(new QName("Include"), include);
 		}
 		return oldProjectRoot;
@@ -477,11 +555,17 @@ public class ModifyVcproj {
 					include = include.replaceAll(oldProjectRoot, "");
 				else {
 					int index = include.indexOf(relativePath);
-					include = include.substring(index + relativePath.length(), include.length() - 1);
+					include = include.substring(index + relativePath.length(), include.length());
 				}
 				if (include.startsWith("/"))
-					include = include.substring(1, include.length() - 1);
+					include = include.substring(1, include.length());
 			}
+			if (include.endsWith(".cx"))
+				include += "x";
+			else if (include.endsWith(".cp"))
+				include += "p";
+			else if (include.endsWith("."))
+				include += "c";
 			ClCompile.addAttribute(new QName("Include"), include);
 		}
 		for (Object ClIncludeObject : filter.selectNodes("//*[name()='ClInclude']")) {
@@ -494,11 +578,17 @@ public class ModifyVcproj {
 					include = include.replaceAll(oldProjectRoot, "");
 				else {
 					int index = include.indexOf(relativePath);
-					include = include.substring(index + relativePath.length(), include.length() - 1);
+					include = include.substring(index + relativePath.length(), include.length());
 				}
 				if (include.startsWith("/"))
-					include = include.substring(1, include.length() - 1);
+					include = include.substring(1, include.length());
 			}
+			if (include.endsWith(".hx"))
+				include += "x";
+			else if (include.endsWith(".hp"))
+				include += "p";
+			else if (include.endsWith("."))
+				include += "h";
 			ClInclude.addAttribute(new QName("Include"), include);
 		}
 	}
@@ -562,15 +652,33 @@ public class ModifyVcproj {
 	}
 
 	public static void main(String[] args) {
-		// String
-		// s="\"PATH=\\\"/bin:$PATH\\\";BUILDDIR=\\\"$(BuildDir)\\\";SRC_ROOT=\\\"/bin:$PATH\\\";";
-		// System.out.println(s);
-		// Matcher matcher=BUILDDIR_PATTERN.matcher(s);
-		// matcher.find();
-		// System.out.println(matcher.group(4));
-		ModifyVcproj m = new ModifyVcproj("C:/cygwin64/", "C:/cygwin64/opt/lo/bin/make", "F:/PPTPlayer/",
-				"F:/PPTPlayer/Build/", "C:\\Program Files (x86)\\Java\\jdk1.8.0_181\\");
-		m.modifySln(new File("F:\\PPTPlayer\\LibreOffice.sln"));
+//		String s = "C:/cygwin64/bin/dash.exe -c -t \"PATH=\\\"/bin:$PATH\\\" "
+//				+ "BUILDDIR=\\\"E:/VisualStudio/project/PPTPlayer/Build\\\" "
+//				+ "SRC_ROOT=\\\"E:/VisualStudio/project/PPTPlayer/PPTPlayer\\\" "
+//				+ "ANT_HOME=\\\"E:/VisualStudio/project/libreoffice/apache-ant-1.9.5\\\" "
+//				+ "OOO_JUNIT_JAR=\\\"E:/VisualStudio/project/libreoffice/Junit/junit-4.10.jar\\\" "
+//				+ "CYGWIN_HOME=\\\"C:/cygwin64\\\" "
+//				+ "TARFILE_LOCATION=\\\"E:/VisualStudio/project/libreoffice/lo-externalsrc\\\" "
+//				+ "C:/cygwin64/opt/lo/bin/make -rsC -al E:/VisualStudio/project/PPTPlayer/PPTPlayer/sd unitcheck slowcheck screenshot subsequentcheck\"";
+
+		// String reg = "((\\s-[A-Za-z])*)";
+//		 s="\"PATH=\\\"/bin:$PATH\\\";BUILDDIR=\\\"$(BuildDir)\\\";SRC_ROOT=\\\"/bin:$PATH\\\";";
+//		System.out.println(s);
+//		System.out.println(reg);
+//		System.out.println(REG_DUILDDIR_PATTERN);
+
+//		Pattern pattern = Pattern.compile(REG_DUILDDIR_PATTERN);
+//		Matcher matcher = pattern.matcher(s);
+//		matcher.find();
+//		for (int i = 1; i <= matcher.groupCount(); i++) {
+//			System.out.println(i + ": " + matcher.group(i));
+//		}
+
+		ModifyVcproj m = new ModifyVcproj("C:/cygwin64/", "C:/cygwin64/opt/lo/bin/make",
+				"E:/VisualStudio/project/PPTPlayer/PPTPlayer", "E:/VisualStudio/project/PPTPlayer/Build",
+				"C:\\Program Files (x86)\\Java\\jdk1.8.0_181\\", "$BUILDDIR/ant", "$BUILDDIR/Junit\\junit-4.10.jar",
+				"$BUILDDIR/lo-externalsrc");
+		m.modifySln(new File("E:/VisualStudio/project/PPTPlayer/PPTPlayer/LibreOffice.sln"));
 		// Map<String, String> macros = new HashMap<>();
 		// macros.put("ProjectRoot", "E:/VisualStudio/project/PPTPlayer/sd");
 		// Document doc = m.createUserMacros(macros);
