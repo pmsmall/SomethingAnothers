@@ -202,7 +202,7 @@ public class ModifyVcproj {
 			macro.put("CygwinMakeDir", CygwinMakeDir);
 			macro.put("TotalRoot", TotalRoot);
 			macro.put("BuildDir", BuildDir);
-			macro.put("NMakeOutput", BuildDir + "instdir/program/soffice.bin");
+			macro.put("NMakeOutput", BuildDir + "/instdir/program/soffice.bin");
 			macro.put("JAVA_HOME_x86", JAVA_HOME_x86);
 
 			macro.put("ANT_HOME", ANT_HOME);
